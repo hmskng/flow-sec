@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Dashboard Debug</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .debug-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; }
+        .success { color: green; }
+        .error { color: red; }
+        .info { color: blue; }
+    </style>
+</head>
+<body>
+    <h1>Dashboard Debug Page</h1>
+    
+    <div class="debug-section">
+        <h3>1. Test Class Instantiation</h3>
+        <button onclick="testClassInstantiation()">Test FlowSecDashboard Class</button>
+        <div id="class-result"></div>
+    </div>
+    
+    <div class="debug-section">
+        <h3>2. Test Encryption Functions</h3>
+        <button onclick="testEncryption()">Test Encryption Methods</button>
+        <div id="encryption-result"></div>
+    </div>
+    
+    <div class="debug-section">
+        <h3>3. Test Form Elements</h3>
+        <button onclick="testFormElements()">Check Form Elements</button>
+        <div id="form-result"></div>
+    </div>
+    
+    <div class="debug-section">
+        <h3>4. Simulate Message Send</h3>
+        <input type="text" id="test-message" value="Debug test message" />
+        <button onclick="simulateMessageSend()">Simulate Send</button>
+        <div id="send-result"></div>
+    </div>
+
+    <!-- Include the dashboard.js file to test the class -->
+    <script src="dashboard.js?v=5"></script>
+    
+    <script>
+        let testDashboard;
+        
+        function testClassInstantiation() {
+            const result = document.getElementById('class-result');
+            try {
+                testDashboard = new FlowSecDashboard();
+                result.innerHTML = '<p class="success">✅ FlowSecDashboard class instantiated successfully</p>';
+                result.innerHTML += `<p class="info">Instance methods: ${Object.getOwnPropertyNames(Object.getPrototypeOf(testDashboard)).join(', ')}</p>`;
+            } catch (error) {
+                result.innerHTML = `<p class="error">❌ Error instantiating class: ${error.message}</p>`;
+            }
+        }
+        
+        async function testEncryption() {
+            const result = document.getElementById('encryption-result');
+            if (!testDashboard) {
+                result.innerHTML = '<p class="error">❌ Please test class instantiation first</p>';
+                return;
+            }
+            
+            try {
+                const testMessage = 'Hello encryption test';
+                const testChatId = 'test-chat-123';
+                
+                result.innerHTML = '<p class="info">Testing encryption...</p>';
+                
+                const encrypted = await testDashboard.encryptMessage(testChatId, testMessage);
+                result.innerHTML += `<p class="success">✅ Encryption successful</p>`;
+                result.innerHTML += `<p class="info">Original: ${testMessage}</p>`;
+                result.innerHTML += `<p class="info">Encrypted length: ${encrypted.length}</p>`;
+                result.innerHTML += `<p class="info">Encrypted preview: ${encrypted.substring(0, 50)}...</p>`;
+                
+                const decrypted = await testDashboard.decryptMessage(testChatId, encrypted);
+                result.innerHTML += `<p class="success">✅ Decryption successful: ${decrypted}</p>`;
+                result.innerHTML += `<p class="info">Match: ${testMessage === decrypted ? 'YES' : 'NO'}</p>`;
+                
+            } catch (error) {
+                result.innerHTML += `<p class="error">❌ Encryption error: ${error.message}</p>`;
+                console.error('Encryption test error:', error);
+            }
+        }
+        
+        function testFormElements() {
+            const result = document.getElementById('form-result');
+            const messageForm = document.getElementById('message-form');
+            const messageInput = document.getElementById('message-input');
+            
+            result.innerHTML = '';
+            
+            if (messageForm) {
+                result.innerHTML += '<p class="success">✅ message-form element found</p>';
+            } else {
+                result.innerHTML += '<p class="error">❌ message-form element NOT found</p>';
+            }
+            
+            if (messageInput) {
+                result.innerHTML += '<p class="success">✅ message-input element found</p>';
+            } else {
+                result.innerHTML += '<p class="error">❌ message-input element NOT found</p>';
+            }
+            
+            // Check event listeners
+            const listeners = getEventListeners ? getEventListeners(messageForm) : 'DevTools required';
+            result.innerHTML += `<p class="info">Event listeners: ${typeof listeners === 'object' ? JSON.stringify(listeners) : listeners}</p>`;
+        }
+        
+        async function simulateMessageSend() {
+            const result = document.getElementById('send-result');
+            const testMessage = document.getElementById('test-message').value;
+            
+            if (!testDashboard) {
+                result.innerHTML = '<p class="error">❌ Please test class instantiation first</p>';
+                return;
+            }
+            
+            try {
+                result.innerHTML = '<p class="info">Simulating message send...</p>';
+                
+                // Set up test environment
+                testDashboard.currentChatId = '68e0cda284a4497aca5f3a7e'; // Use real chat ID
+                testDashboard.userEmail = 'akashkalimuthu4@gmail.com';
+                
+                result.innerHTML += `<p class="info">Chat ID: ${testDashboard.currentChatId}</p>`;
+                result.innerHTML += `<p class="info">User: ${testDashboard.userEmail}</p>`;
+                result.innerHTML += `<p class="info">Original message: ${testMessage}</p>`;
+                
+                // Test encryption step
+                const encrypted = await testDashboard.encryptMessage(testDashboard.currentChatId, testMessage);
+                result.innerHTML += `<p class="success">✅ Message encrypted: ${encrypted.substring(0, 50)}...</p>`;
+                
+                // Test API call
+                const response = await fetch('https://flowsec-kp3q.onrender.com/api/messages', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        chatId: testDashboard.currentChatId,
+                        sender: testDashboard.userEmail,
+                        encrypted: encrypted
+                    })
+                });
+                
+                const apiResult = await response.json();
+                result.innerHTML += `<p class="success">✅ API call successful: ${apiResult.message?._id}</p>`;
+                result.innerHTML += `<p class="info">Debug simulation completed successfully!</p>`;
+                
+            } catch (error) {
+                result.innerHTML += `<p class="error">❌ Simulation error: ${error.message}</p>`;
+                console.error('Simulation error:', error);
+            }
+        }
+        
+        // Auto-run some tests on page load
+        window.addEventListener('load', () => {
+            setTimeout(() => {
+                testClassInstantiation();
+                testFormElements();
+            }, 1000);
+        });
+    </script>
+</body>
+</html>

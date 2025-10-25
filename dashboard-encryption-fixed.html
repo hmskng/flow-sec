@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FlowSec - Dashboard (ENCRYPTION FIXED)</title>
+    <link rel="stylesheet" href="dashboard.css">
+    <style>
+        /* Add a visual indicator that this is the fixed version */
+        .dashboard-container::before {
+            content: "🔐 ENCRYPTION FIXED VERSION";
+            position: fixed;
+            top: 0;
+            left: 0;
+            background: #4CAF50;
+            color: white;
+            padding: 5px 10px;
+            font-size: 12px;
+            z-index: 10000;
+            border-radius: 0 0 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard-container">
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <h2>FlowSec</h2>
+                <div class="user-profile">
+                    <div class="profile-icon" id="profile-icon">👤</div>
+                    <div class="user-info">
+                        <div class="username" id="username">Loading...</div>
+                        <div class="user-email" id="user-email">Loading...</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="chat-list" id="chat-list">
+                <div class="loading">Loading chats...</div>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div class="chat-header" id="chat-header">
+                <div class="chat-info">
+                    <h3 id="chat-title">Select a chat</h3>
+                    <p id="chat-members">No chat selected</p>
+                </div>
+            </div>
+
+            <div class="messages-container" id="messages-container">
+                <div class="messages" id="messages">
+                    <div class="welcome-message">
+                        <h3>Welcome to FlowSec! 🔐</h3>
+                        <p>Select a chat to start secure messaging</p>
+                        <p><strong>✅ ENCRYPTION FIXED VERSION</strong></p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="message-input-container" id="message-input-container" style="display: none;">
+                <form id="message-form" class="message-form">
+                    <input type="text" id="message-input" placeholder="Type your encrypted message..." autocomplete="off">
+                    <button type="submit" id="send-btn">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="22" y1="2" x2="11" y2="13"></line>
+                            <polygon points="22,2 15,22 11,13 2,9"></polygon>
+                        </svg>
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Load the FIXED JavaScript file -->
+    <script src="dashboard-encryption-fixed.js"></script>
+    <script>
+        // Verify that encryption is working
+        console.log('🔍 VERIFICATION: getChatKey function available:', typeof getChatKey === 'function');
+        console.log('🔍 VERIFICATION: FlowSecDashboard class available:', typeof FlowSecDashboard === 'function');
+        
+        // Show success indicator
+        if (typeof getChatKey === 'function') {
+            console.log('✅ ENCRYPTION FUNCTIONS LOADED SUCCESSFULLY');
+        } else {
+            console.error('❌ ENCRYPTION FUNCTIONS MISSING');
+        }
+    </script>
+</body>
+</html>

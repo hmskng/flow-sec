@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug Dashboard Loading</title>
+</head>
+<body>
+    <h1>Dashboard Debug Test</h1>
+    <button onclick="testFunctions()">Test If Functions Are Loaded</button>
+    <div id="debug-results"></div>
+
+    <script src="dashboard.js"></script>
+    <script>
+        function testFunctions() {
+            const results = document.getElementById('debug-results');
+            
+            let report = '<h3>Function Availability Test:</h3>';
+            
+            // Test if getChatKey exists
+            if (typeof getChatKey === 'function') {
+                report += '<p>✅ getChatKey function: FOUND</p>';
+            } else {
+                report += '<p>❌ getChatKey function: MISSING</p>';
+            }
+            
+            // Test if FlowSecDashboard class exists
+            if (typeof FlowSecDashboard === 'function') {
+                report += '<p>✅ FlowSecDashboard class: FOUND</p>';
+            } else {
+                report += '<p>❌ FlowSecDashboard class: MISSING</p>';
+            }
+            
+            // Test creating instance
+            try {
+                const testInstance = new FlowSecDashboard();
+                if (typeof testInstance.encryptMessage === 'function') {
+                    report += '<p>✅ encryptMessage method: FOUND</p>';
+                } else {
+                    report += '<p>❌ encryptMessage method: MISSING</p>';
+                }
+            } catch (error) {
+                report += '<p>❌ Error creating instance: ' + error.message + '</p>';
+            }
+            
+            // Test encryption directly
+            report += '<h3>Direct Encryption Test:</h3>';
+            if (typeof getChatKey === 'function') {
+                testEncryption().then(result => {
+                    report += result;
+                    results.innerHTML = report;
+                }).catch(error => {
+                    report += '<p>❌ Encryption test failed: ' + error.message + '</p>';
+                    results.innerHTML = report;
+                });
+            } else {
+                report += '<p>❌ Cannot test encryption - getChatKey missing</p>';
+                results.innerHTML = report;
+            }
+        }
+        
+        async function testEncryption() {
+            try {
+                const testChatId = '68bd4cffc321263ac78219bd';
+                const testMessage = 'debug test message';
+                
+                // Test getChatKey
+                const key = await getChatKey(testChatId);
+                let result = '<p>✅ getChatKey worked - generated key</p>';
+                
+                // Test full encryption
+                const encrypted = await encryptMessage(testChatId, testMessage);
+                result += '<p>✅ Full encryption worked</p>';
+                result += '<p><strong>Original:</strong> ' + testMessage + '</p>';
+                result += '<p><strong>Encrypted:</strong> ' + encrypted.substring(0, 50) + '...</p>';
+                result += '<p><strong>Length:</strong> ' + encrypted.length + ' chars</p>';
+                
+                return result;
+            } catch (error) {
+                return '<p>❌ Encryption failed: ' + error.message + '</p>';
+            }
+        }
+        
+        // Define encryptMessage for testing
+        async function encryptMessage(chatId, text) {
+            console.log('encryptMessage called with:', { chatId, text });
+            try {
+                const key = await getChatKey(chatId);
+                console.log('Got encryption key:', key);
+                const iv = window.crypto.getRandomValues(new Uint8Array(12));
+                const enc = new TextEncoder().encode(text);
+                const ciphertext = await window.crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, enc);
+                const result = btoa(String.fromCharCode(...iv) + String.fromCharCode(...new Uint8Array(ciphertext)));
+                console.log('Encryption successful, result:', result);
+                return result;
+            } catch (error) {
+                console.error('Encryption failed:', error);
+                throw new Error('Failed to encrypt message: ' + error.message);
+            }
+        }
+    </script>
+</body>
+</html>
