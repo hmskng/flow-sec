@@ -21,6 +21,275 @@ class EncryptedFileSharing {
         this.init();
     }
 
+    /* IndexedDB helper for storing non-extractable private CryptoKey */
+    async _openKeyDB() {
+        return new Promise((resolve, reject) => {
+            const req = indexedDB.open('flowsec-crypto-keys', 1);
+            req.onupgradeneeded = () => {
+                const db = req.result;
+                if (!db.objectStoreNames.contains('keys')) {
+                    db.createObjectStore('keys', { keyPath: 'id' });
+                }
+                if (!db.objectStoreNames.contains('backups')) {
+                    db.createObjectStore('backups', { keyPath: 'id' });
+                }
+            };
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    async _storeBackupInIDB(id, backupObj) {
+        try {
+            const db = await this._openKeyDB();
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction('backups', 'readwrite');
+                const store = tx.objectStore('backups');
+                store.put({ id, backup: backupObj });
+                tx.oncomplete = () => { db.close(); resolve(true); };
+                tx.onerror = () => { db.close(); reject(tx.error || new Error('IDB backup transaction failed')); };
+            });
+        } catch (err) {
+            console.warn('IndexedDB backup store failed:', err);
+            throw err;
+        }
+    }
+
+    async _getBackupFromIDB(id) {
+        try {
+            const db = await this._openKeyDB();
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction('backups', 'readonly');
+                const store = tx.objectStore('backups');
+                const req = store.get(id);
+                req.onsuccess = () => { db.close(); resolve(req.result?.backup); };
+                req.onerror = () => { db.close(); reject(req.error); };
+            });
+        } catch (err) {
+            console.warn('IndexedDB get backup failed:', err);
+            throw err;
+        }
+    }
+
+    // Derive an AES-GCM key from a password and salt
+    async _deriveKeyFromPassword(password, salt, iterations = 200000) {
+        const pwUtf8 = new TextEncoder().encode(password);
+        const baseKey = await crypto.subtle.importKey('raw', pwUtf8, { name: 'PBKDF2' }, false, ['deriveKey']);
+        return crypto.subtle.deriveKey(
+            {
+                name: 'PBKDF2',
+                salt: salt,
+                iterations: iterations,
+                hash: 'SHA-256'
+            },
+            baseKey,
+            { name: 'AES-GCM', length: 256 },
+            false,
+            ['encrypt', 'decrypt']
+        );
+    }
+
+    // Create a downloadable backup JSON and optionally store in IDB
+    async _createEncryptedBackup(privateKeyBuffer, password) {
+        const salt = crypto.getRandomValues(new Uint8Array(16));
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const aesKey = await this._deriveKeyFromPassword(password, salt);
+        const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, privateKeyBuffer);
+        const backupObj = {
+            version: 1,
+            createdAt: Date.now(),
+            salt: btoa(String.fromCharCode(...salt)),
+            iv: btoa(String.fromCharCode(...iv)),
+            ciphertext: btoa(String.fromCharCode(...new Uint8Array(encrypted)))
+        };
+        return backupObj;
+    }
+
+    // Trigger download of backup JSON
+    _downloadBackupFile(obj, filename = 'flowsec-key-backup.json') {
+        const blob = new Blob([JSON.stringify(obj)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+    }
+
+    // Public API: export encrypted backup (will prompt for password)
+    async exportEncryptedBackup() {
+        try {
+            // Try to get a legacy extractable private key from localStorage first
+            const legacy = localStorage.getItem('privateKey');
+            if (!legacy) {
+                // Try to get stored backup from IDB
+                const stored = await this._getBackupFromIDB('last-backup');
+                if (stored) {
+                    // Offer stored backup for download
+                    this._downloadBackupFile(stored, 'flowsec-key-backup.json');
+                    this.showNotification('Downloaded stored encrypted backup.', 'success');
+                    return;
+                }
+                alert('No exportable private key or stored backup available. If your private key is non-exportable, use the backup created at key-generation time or generate new keys.');
+                return;
+            }
+
+            const password = prompt('Enter a strong password to encrypt your backup');
+            if (!password) return;
+            const privateKeyBuffer = Uint8Array.from(atob(legacy), c => c.charCodeAt(0));
+            const backupObj = await this._createEncryptedBackup(privateKeyBuffer, password);
+            // store in IDB for convenience
+            try { await this._storeBackupInIDB('last-backup', backupObj); } catch (e) { console.warn(e); }
+            this._downloadBackupFile(backupObj);
+            // Try to upload backup to server (optional)
+            try {
+                await this._uploadBackupToServer(backupObj);
+                this.showNotification('Encrypted backup uploaded to server for recovery on other devices.', 'success');
+            } catch (uploadErr) {
+                console.warn('Uploading backup to server failed:', uploadErr);
+            }
+            this.showNotification('Encrypted backup created and downloaded.', 'success');
+        } catch (err) {
+            console.error('Export backup failed:', err);
+            this.showNotification('Failed to export backup', 'error');
+        }
+    }
+
+    // Public API: restore encrypted backup (will prompt for file and password)
+    async importEncryptedBackup() {
+        try {
+            const fileInput = document.createElement('input');
+            fileInput.type = 'file';
+            fileInput.accept = '.json';
+            fileInput.onchange = async (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const text = await file.text();
+                let obj;
+                try { obj = JSON.parse(text); } catch (jerr) { alert('Invalid backup file'); return; }
+                const password = prompt('Enter the password used to encrypt this backup');
+                if (!password) return;
+                const salt = Uint8Array.from(atob(obj.salt), c => c.charCodeAt(0));
+                const iv = Uint8Array.from(atob(obj.iv), c => c.charCodeAt(0));
+                const ciphertext = Uint8Array.from(atob(obj.ciphertext), c => c.charCodeAt(0));
+                const aesKey = await this._deriveKeyFromPassword(password, salt);
+                let decrypted;
+                try {
+                    decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, aesKey, ciphertext);
+                } catch (derr) {
+                    alert('Incorrect password or corrupted backup');
+                    return;
+                }
+                // Import pkcs8 and store as non-exportable in IDB
+                const nonExportable = await crypto.subtle.importKey('pkcs8', new Uint8Array(decrypted), { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['decrypt']);
+                await this._storePrivateKeyInIDB('rsa-oaep-private', nonExportable);
+                // Optionally remove legacy privateKey entry
+                localStorage.removeItem('privateKey');
+                this.keyPair = this.keyPair || {};
+                this.keyPair.privateKey = nonExportable;
+                this.showNotification('Backup restored and private key stored securely.', 'success');
+            };
+            fileInput.click();
+        } catch (err) {
+            console.error('Import backup failed:', err);
+            this.showNotification('Failed to import backup', 'error');
+        }
+    }
+
+    // Upload a backup to the server (optional remote recovery)
+    async _uploadBackupToServer(backupObj) {
+        try {
+            const res = await fetch(`${this.API_BASE}/store-backup`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: this.userEmail, backup: backupObj })
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.message || 'Upload failed');
+            }
+            return res.json();
+        } catch (err) {
+            console.error('Upload backup error:', err);
+            throw err;
+        }
+    }
+
+    // Import backup from server (prompt for password)
+    async importRemoteBackup() {
+        try {
+            const res = await fetch(`${this.API_BASE}/get-backup?email=${encodeURIComponent(this.userEmail)}`);
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                this.showNotification(err.message || 'No remote backup found', 'error');
+                return;
+            }
+            const data = await res.json();
+            const backupObj = data.backup;
+            if (!backupObj) {
+                this.showNotification('No remote backup available', 'error');
+                return;
+            }
+            const password = prompt('Enter the password used to encrypt your remote backup');
+            if (!password) return;
+            const salt = Uint8Array.from(atob(backupObj.salt), c => c.charCodeAt(0));
+            const iv = Uint8Array.from(atob(backupObj.iv), c => c.charCodeAt(0));
+            const ciphertext = Uint8Array.from(atob(backupObj.ciphertext), c => c.charCodeAt(0));
+            const aesKey = await this._deriveKeyFromPassword(password, salt);
+            let decrypted;
+            try {
+                decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, aesKey, ciphertext);
+            } catch (derr) {
+                alert('Incorrect password or corrupted remote backup');
+                return;
+            }
+            const nonExportable = await crypto.subtle.importKey('pkcs8', new Uint8Array(decrypted), { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['decrypt']);
+            await this._storePrivateKeyInIDB('rsa-oaep-private', nonExportable);
+            localStorage.removeItem('privateKey');
+            this.keyPair = this.keyPair || {};
+            this.keyPair.privateKey = nonExportable;
+            this.showNotification('Remote backup restored and private key stored securely.', 'success');
+        } catch (err) {
+            console.error('Import remote backup failed:', err);
+            this.showNotification('Failed to import remote backup', 'error');
+        }
+    }
+
+    async _storePrivateKeyInIDB(id, cryptoKey) {
+        try {
+            const db = await this._openKeyDB();
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction('keys', 'readwrite');
+                const store = tx.objectStore('keys');
+                // Storing the CryptoKey directly uses structured clone (supported in modern browsers)
+                store.put({ id, key: cryptoKey });
+                tx.oncomplete = () => { db.close(); resolve(true); };
+                tx.onerror = () => { db.close(); reject(tx.error || new Error('IDB transaction failed')); };
+            });
+        } catch (err) {
+            console.warn('IndexedDB store failed:', err);
+            throw err;
+        }
+    }
+
+    async _getPrivateKeyFromIDB(id) {
+        try {
+            const db = await this._openKeyDB();
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction('keys', 'readonly');
+                const store = tx.objectStore('keys');
+                const req = store.get(id);
+                req.onsuccess = () => { db.close(); resolve(req.result?.key); };
+                req.onerror = () => { db.close(); reject(req.error); };
+            });
+        } catch (err) {
+            console.warn('IndexedDB get failed:', err);
+            throw err;
+        }
+    }
+
     setupDemoMode() {
         // Set demo user data
         localStorage.setItem('userEmail', 'demo@flowsec.com');
@@ -155,26 +424,59 @@ class EncryptedFileSharing {
             this.showKeyGenerationModal();
             return false;
         }
-        
-        // Try to load private key from localStorage
-        const privateKeyData = localStorage.getItem('privateKey');
-        if (!privateKeyData) {
-            this.showKeyGenerationModal();
-            return false;
-        }
-
+        // Try to load private key from IndexedDB (non-exportable CryptoKey)
         try {
-            // Import the stored private key
-            const privateKeyBuffer = Uint8Array.from(atob(privateKeyData), c => c.charCodeAt(0));
-            const privateKey = await crypto.subtle.importKey(
-                'pkcs8',
-                privateKeyBuffer,
-                { name: 'RSA-OAEP', hash: 'SHA-256' },
-                false,
-                ['decrypt']
-            );
+            let privateKey = null;
+            try {
+                privateKey = await this._getPrivateKeyFromIDB('rsa-oaep-private');
+            } catch (idbErr) {
+                console.warn('Could not read private key from IDB:', idbErr);
+            }
 
-            // Import public key
+            // Migration path: if IDB missing but old localStorage privateKey exists, import and re-store as non-extractable
+            const legacyPrivateKeyData = localStorage.getItem('privateKey');
+            if (!privateKey && legacyPrivateKeyData) {
+                try {
+                    const privateKeyBuffer = Uint8Array.from(atob(legacyPrivateKeyData), c => c.charCodeAt(0));
+                    // Import as extractable so we can re-import as non-extractable
+                    const imported = await crypto.subtle.importKey(
+                        'pkcs8',
+                        privateKeyBuffer,
+                        { name: 'RSA-OAEP', hash: 'SHA-256' },
+                        true,
+                        ['decrypt']
+                    );
+                    // Re-import as non-extractable
+                    const nonExportable = await crypto.subtle.importKey(
+                        'pkcs8',
+                        privateKeyBuffer,
+                        { name: 'RSA-OAEP', hash: 'SHA-256' },
+                        false,
+                        ['decrypt']
+                    );
+
+                    // Try to store in IDB (best effort)
+                    try {
+                        await this._storePrivateKeyInIDB('rsa-oaep-private', nonExportable);
+                        // Remove legacy storage
+                        localStorage.removeItem('privateKey');
+                        privateKey = nonExportable;
+                    } catch (storeErr) {
+                        console.warn('Storing re-imported private key in IDB failed:', storeErr);
+                        // Keep using legacy key as a last resort
+                        privateKey = imported;
+                    }
+                } catch (legacyErr) {
+                    console.warn('Failed to migrate legacy private key from localStorage:', legacyErr);
+                }
+            }
+
+            if (!privateKey) {
+                this.showKeyGenerationModal();
+                return false;
+            }
+
+            // Import public key (spki)
             const publicKeyBuffer = Uint8Array.from(atob(this.user.publicKey), c => c.charCodeAt(0));
             const publicKey = await crypto.subtle.importKey(
                 'spki',
@@ -187,7 +489,7 @@ class EncryptedFileSharing {
             this.keyPair = { privateKey, publicKey };
             return true;
         } catch (error) {
-            console.error('Error importing keys:', error);
+            console.error('Error loading/importing keys:', error);
             this.showKeyGenerationModal();
             return false;
         }
@@ -210,16 +512,60 @@ class EncryptedFileSharing {
                 ['encrypt', 'decrypt']
             );
 
-            // Export keys
+            // Export public key (SPKI)
             const publicKeyBuffer = await crypto.subtle.exportKey('spki', keyPair.publicKey);
-            const privateKeyBuffer = await crypto.subtle.exportKey('pkcs8', keyPair.privateKey);
-
-            // Convert to base64
             const publicKeyBase64 = btoa(String.fromCharCode(...new Uint8Array(publicKeyBuffer)));
-            const privateKeyBase64 = btoa(String.fromCharCode(...new Uint8Array(privateKeyBuffer)));
 
-            // Store private key locally
-            localStorage.setItem('privateKey', privateKeyBase64);
+            // For best security: re-import private key as non-extractable and store directly in IndexedDB
+            const privateKeyBuffer = await crypto.subtle.exportKey('pkcs8', keyPair.privateKey);
+            let nonExportablePrivateKey = null;
+            try {
+                nonExportablePrivateKey = await crypto.subtle.importKey(
+                    'pkcs8',
+                    privateKeyBuffer,
+                    { name: 'RSA-OAEP', hash: 'SHA-256' },
+                    false, // non-extractable
+                    ['decrypt']
+                );
+
+                // Try storing non-exportable key in IndexedDB (structured clone of CryptoKey)
+                await this._storePrivateKeyInIDB('rsa-oaep-private', nonExportablePrivateKey);
+                // Offer to create an encrypted backup immediately (password-protected)
+                try {
+                    if (confirm('Create a password-protected backup of your private key now? (recommended)')) {
+                        const pw = prompt('Enter a strong password to encrypt your backup');
+                        if (pw) {
+                            const backupObj = await this._createEncryptedBackup(privateKeyBuffer, pw);
+                            // store backup in IDB for convenience
+                            try { await this._storeBackupInIDB('last-backup', backupObj); } catch (e) { console.warn(e); }
+                            this._downloadBackupFile(backupObj);
+                            this.showNotification('Encrypted backup created and downloaded.', 'success');
+                        }
+                    }
+                } catch (bkErr) {
+                    console.warn('Backup creation step failed:', bkErr);
+                }
+            } catch (idbErr) {
+                console.warn('Failed to store non-exportable private key in IndexedDB:', idbErr);
+                // As a fallback, re-import as extractable and keep in-memory; also persist legacy encoded key so user can recover if needed
+                try {
+                    const fallbackPrivate = await crypto.subtle.importKey(
+                        'pkcs8',
+                        privateKeyBuffer,
+                        { name: 'RSA-OAEP', hash: 'SHA-256' },
+                        true,
+                        ['decrypt']
+                    );
+                    // Persist legacy base64 (reduced security) so old sessions keep working - show a warning
+                    const privateKeyBase64 = btoa(String.fromCharCode(...new Uint8Array(privateKeyBuffer)));
+                    localStorage.setItem('privateKey', privateKeyBase64);
+                    this.showNotification('Warning: your browser does not support secure storage for private keys. Private key saved to localStorage as a fallback (less secure).', 'error');
+                    nonExportablePrivateKey = fallbackPrivate;
+                } catch (fallbackErr) {
+                    console.error('Failed to create fallback private key:', fallbackErr);
+                    throw fallbackErr;
+                }
+            }
 
             // Update user's public key on server
             const updateRes = await fetch(`${this.API_BASE}/update-public-key`, {
@@ -233,7 +579,8 @@ class EncryptedFileSharing {
 
             if (updateRes.ok) {
                 const data = await updateRes.json();
-                this.keyPair = keyPair;
+                // Use the non-exportable private key (or fallback) and the public key
+                this.keyPair = { privateKey: nonExportablePrivateKey, publicKey: keyPair.publicKey };
                 this.user.publicKey = publicKeyBase64;
                 this.closeKeyGenModal();
                 this.showNotification('Encryption keys generated successfully!', 'success');
@@ -765,6 +1112,8 @@ class EncryptedFileSharing {
 // Global functions for onclick handlers
 window.logout = function() {
     localStorage.clear();
+    sessionStorage.removeItem('masterKey');
+    sessionStorage.removeItem('last-backup');
     window.location.href = 'index.html';
 };
 

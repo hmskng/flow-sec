@@ -153,6 +153,14 @@ class AuthUI {
                 this.showNotification('Login successful! Redirecting...', 'success');
                 localStorage.setItem('userEmail', email);
                 localStorage.setItem('user', JSON.stringify(res.user));
+                try {
+                    // Derive a per-session master key from the user's password and store in sessionStorage
+                    const salt = new TextEncoder().encode(email + 'FlowSecMasterSalt');
+                    const masterRaw = await this._deriveMasterKeyFromPassword(password, salt);
+                    sessionStorage.setItem('masterKey', btoa(String.fromCharCode(...new Uint8Array(masterRaw))));
+                } catch (derErr) {
+                    console.warn('Failed to derive/store master key in session:', derErr);
+                }
                 setTimeout(() => { window.location.href = 'dashboard.html'; }, 1500);
             } else if (res.message) {
                 this.showNotification(res.message, 'error');
@@ -200,6 +208,13 @@ class AuthUI {
                 this.showNotification('Account created successfully! Redirecting...', 'success');
                 localStorage.setItem('userEmail', email);
                 localStorage.setItem('user', JSON.stringify(res.user));
+                try {
+                    const salt = new TextEncoder().encode(email + 'FlowSecMasterSalt');
+                    const masterRaw = await this._deriveMasterKeyFromPassword(password, salt);
+                    sessionStorage.setItem('masterKey', btoa(String.fromCharCode(...new Uint8Array(masterRaw))));
+                } catch (derErr) {
+                    console.warn('Failed to derive/store master key after signup:', derErr);
+                }
                 setTimeout(() => {
                     window.location.href = 'dashboard.html';
                 }, 1500);
@@ -220,6 +235,23 @@ class AuthUI {
             body: JSON.stringify(data)
         });
         return response.json();
+    }
+
+    // Derive a 256-bit master key from a password using PBKDF2
+    async _deriveMasterKeyFromPassword(password, salt, iterations = 200000) {
+        const enc = new TextEncoder();
+        const pwUtf8 = enc.encode(password);
+        const baseKey = await crypto.subtle.importKey('raw', pwUtf8, { name: 'PBKDF2' }, false, ['deriveBits','deriveKey']);
+        const derivedKey = await crypto.subtle.deriveKey(
+            { name: 'PBKDF2', salt, iterations, hash: 'SHA-256' },
+            baseKey,
+            { name: 'AES-GCM', length: 256 },
+            true,
+            ['encrypt','decrypt']
+        );
+        // Export raw key bytes
+        const raw = await crypto.subtle.exportKey('raw', derivedKey);
+        return raw;
     }
 
     validateEmail(email) {

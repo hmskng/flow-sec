@@ -138,6 +138,10 @@
                 <div class="key-gen-actions">
                     <button id="generate-keys-btn" class="primary-btn">Generate Keys</button>
                     <button onclick="closeKeyGenModal()" class="secondary-btn">Skip for Now</button>
+                    <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
+                        <button id="export-backup-btn" class="secondary-btn" onclick="window.fileSharing?.exportEncryptedBackup()">Export Backup</button>
+                        <button id="import-remote-backup-btn" class="secondary-btn" onclick="window.fileSharing?.importRemoteBackup()">Import Remote Backup</button>
+                    </div>
                 </div>
                 <div id="key-gen-progress" style="display: none;">
                     <div class="loading-spinner"></div>

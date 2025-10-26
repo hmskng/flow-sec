@@ -15,6 +15,7 @@ import FileModel from './models/File.js';
 import KeyModel from './models/Key.js';
 import FriendModel from './models/Friend.js';
 import SecurityScanner from './SecurityScanner.js';
+import BackupModel from './models/Backup.js';
 
 // Load env variables
 dotenv.config();
@@ -658,6 +659,46 @@ app.post('/api/update-public-key', async (req, res) => {
     } catch (error) {
         console.error('Error updating public key:', error);
         res.status(500).json({ message: 'Failed to update public key' });
+    }
+});
+
+// Store encrypted backup (optional): body { email, backup }
+app.post('/api/store-backup', async (req, res) => {
+    try {
+        const { email, backup } = req.body;
+        if (!email || !backup) return res.status(400).json({ message: 'Email and backup required' });
+
+        // Ensure user exists
+        const user = await User.findOne({ email });
+        if (!user) return res.status(404).json({ message: 'User not found' });
+
+        // Upsert the backup for this ownerEmail (store latest)
+        const doc = await BackupModel.findOneAndUpdate(
+            { ownerEmail: email },
+            { backup, createdAt: Date.now() },
+            { upsert: true, new: true }
+        );
+
+        res.json({ message: 'Backup stored successfully', backupId: doc._id });
+    } catch (error) {
+        console.error('Error storing backup:', error);
+        res.status(500).json({ message: 'Failed to store backup' });
+    }
+});
+
+// Retrieve encrypted backup for a user
+app.get('/api/get-backup', async (req, res) => {
+    try {
+        const { email } = req.query;
+        if (!email) return res.status(400).json({ message: 'Email required' });
+
+        const doc = await BackupModel.findOne({ ownerEmail: email });
+        if (!doc) return res.status(404).json({ message: 'Backup not found' });
+
+        res.json({ backup: doc.backup, createdAt: doc.createdAt });
+    } catch (error) {
+        console.error('Error fetching backup:', error);
+        res.status(500).json({ message: 'Failed to fetch backup' });
     }
 });
 

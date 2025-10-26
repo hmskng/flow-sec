@@ -4,11 +4,41 @@
 // Encryption key generation function for chat messages
 async function getChatKey(chatId) {
     console.log('🔑 getChatKey called with chatId:', chatId);
-    
-    // Create a consistent key for each chat using the chatId
+    // If a per-session master key derived from the user's password exists, derive per-chat key from it
+    const masterB64 = sessionStorage.getItem('masterKey');
+    if (masterB64) {
+        try {
+            const masterRaw = Uint8Array.from(atob(masterB64), c => c.charCodeAt(0));
+            const importedMaster = await window.crypto.subtle.importKey(
+                'raw',
+                masterRaw,
+                { name: 'PBKDF2' },
+                false,
+                ['deriveKey']
+            );
+
+            const derivedKey = await window.crypto.subtle.deriveKey(
+                {
+                    name: 'PBKDF2',
+                    salt: new TextEncoder().encode('FlowSecChatSalt' + chatId),
+                    iterations: 100000,
+                    hash: 'SHA-256'
+                },
+                importedMaster,
+                { name: 'AES-GCM', length: 256 },
+                false,
+                ['encrypt', 'decrypt']
+            );
+            console.log('🔑 Derived chat key from session master for chat:', chatId);
+            return derivedKey;
+        } catch (err) {
+            console.warn('Failed deriving chat key from master:', err);
+            // fall through to legacy method
+        }
+    }
+
+    // Legacy deterministic derivation (fallback)
     const keyMaterial = new TextEncoder().encode(chatId + 'FlowSecChatEncryption2025');
-    
-    // Import key material
     const importedKey = await window.crypto.subtle.importKey(
         'raw',
         keyMaterial,
@@ -16,8 +46,6 @@ async function getChatKey(chatId) {
         false,
         ['deriveKey']
     );
-    
-    // Derive AES-GCM key
     const derivedKey = await window.crypto.subtle.deriveKey(
         {
             name: 'PBKDF2',
@@ -30,8 +58,7 @@ async function getChatKey(chatId) {
         false,
         ['encrypt', 'decrypt']
     );
-    
-    console.log('🔑 Generated encryption key for chat:', chatId);
+    console.log('🔑 Generated legacy encryption key for chat:', chatId);
     return derivedKey;
 }
 
