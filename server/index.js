@@ -1,6 +1,5 @@
 import express from 'express';
 import mongoose from 'mongoose';
-import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import multer from 'multer';
@@ -98,77 +97,7 @@ mongoose.connect(process.env.MONGODB_URI, {
 }).then(() => console.log('MongoDB connected'))
   .catch(err => console.error('MongoDB error:', err));
 
-// OTP Schema
-const otpSchema = new mongoose.Schema({
-    email: String,
-    otp: String,
-    createdAt: { type: Date, default: Date.now, expires: 300 } // 5 min expiry
-});
-const Otp = mongoose.model('Otp', otpSchema);
-
-// Nodemailer setup (supports a MAIL_STUB flag to disable real sending during testing)
-let transporter;
-if (String(process.env.MAIL_STUB).toLowerCase() === 'true') {
-    // Simple stub transporter with a sendMail method that logs and resolves
-    transporter = {
-        sendMail: async (mailOptions) => {
-            console.log('MAIL_STUB enabled - skipping real send. Mail payload:');
-            console.log(JSON.stringify(mailOptions, null, 2));
-            // Simulate nodemailer response
-            return Promise.resolve({ accepted: [mailOptions.to], messageId: 'stubbed-mail-id' });
-        }
-    }; 
-} else {
-    // Real transporter
-    transporter = nodemailer.createTransport({
-        service: 'gmail',
-        auth: {
-            user: process.env.EMAIL_USER,
-            pass: process.env.EMAIL_PASS
-        }
-    });
-}
-
-function generateOtp() {
-    return Math.floor(100000 + Math.random() * 900000).toString();
-}
-
-// Send OTP endpoint
-app.post('/api/send-otp', async (req, res) => {
-    const { email } = req.body;
-    if (!email) return res.status(400).json({ message: 'Email required' });
-    const otp = generateOtp();
-    await Otp.deleteMany({ email }); // Remove old OTPs
-    await Otp.create({ email, otp });
-    try {
-        await transporter.sendMail({
-            from: process.env.EMAIL_USER,
-            to: email,
-            subject: 'Your OTP for Secure Messenger',
-            text: `Your OTP is: ${otp}`
-        });
-        res.json({ message: 'OTP sent' });
-    } catch (err) {
-        res.status(500).json({ message: 'Failed to send OTP', error: err.message });
-    }
-});
-
-// Verify OTP endpoint
-app.post('/api/verify-otp', async (req, res) => {
-    const { email, otp } = req.body;
-    if (!email || !otp) return res.status(400).json({ message: 'Email and OTP required' });
-    const record = await Otp.findOne({ email, otp });
-    if (!record) return res.status(400).json({ message: 'Invalid OTP' });
-    await Otp.deleteMany({ email }); // Remove OTP after use
-    
-    // For login: check if user exists and return user data
-    const user = await User.findOne({ email });
-    if (user) {
-        res.json({ message: 'OTP verified', user });
-    } else {
-        res.json({ message: 'OTP verified' });
-    }
-});
+// NOTE: OTP/email-based signup/login removed. Authentication now uses email + password only.
 
 // Login endpoint (email + password)
 app.post('/api/login', async (req, res) => {
@@ -186,60 +115,51 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
-// Register endpoint (signup with OTP verification and file upload)
+// Register endpoint (signup with password and file upload)
 app.post('/api/register', upload.single('icon'), async (req, res) => {
-    const { email, username, otp, publicKey, password } = req.body;
-    if (!email || !username || !otp) return res.status(400).json({ message: 'Email, username, and OTP required' });
-    
+    const { email, username, publicKey, password } = req.body;
+    if (!email || !username || !password) return res.status(400).json({ message: 'Email, username, and password required' });
+
     try {
-        // Verify OTP first
-        const otpRecord = await Otp.findOne({ email, otp });
-        if (!otpRecord) return res.status(400).json({ message: 'Invalid OTP' });
-        
         // Check if user already exists
         let user = await User.findOne({ $or: [ { email }, { username } ] });
         if (user) {
-            // Return specific error message based on what already exists
             if (user.email === email) {
                 return res.status(400).json({ message: 'An account with this email already exists. Please use the login option.' });
             } else {
                 return res.status(400).json({ message: 'Username already taken. Please choose a different username.' });
             }
         }
-        
+
         // Handle profile icon upload
         let profileIcon = null;
         if (req.file) {
             profileIcon = req.file.filename; // Store the filename
         }
-        
-        // Create user with optional publicKey for encryption and optional password
+
+        // Create user with optional publicKey and required password
         const userData = { email, username, profileIcon };
         if (publicKey) {
             userData.publicKey = publicKey;
         }
-        if (password) {
-            const salt = await bcrypt.genSalt(10);
-            userData.passwordHash = await bcrypt.hash(password, salt);
-        }
+        const salt = await bcrypt.genSalt(10);
+        userData.passwordHash = await bcrypt.hash(password, salt);
+
         user = await User.create(userData);
-        
-        // Remove OTP after successful registration
-        await Otp.deleteMany({ email });
-        
+
         res.json({ user, message: 'Account created successfully' });
     } catch (error) {
         console.error('Registration error:', error);
-        
+
         // Handle MongoDB duplicate key errors
         if (error.code === 11000) {
-            if (error.keyValue.email) {
+            if (error.keyValue && error.keyValue.email) {
                 return res.status(400).json({ message: 'An account with this email already exists. Please use the login option.' });
-            } else if (error.keyValue.username) {
+            } else if (error.keyValue && error.keyValue.username) {
                 return res.status(400).json({ message: 'Username already taken. Please choose a different username.' });
             }
         }
-        
+
         res.status(500).json({ message: 'Registration failed. Please try again.' });
     }
 });

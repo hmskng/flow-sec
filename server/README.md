@@ -14,9 +14,8 @@
 
 ## API Endpoints
 
-- `POST /api/send-otp` — `{ email }` in JSON body. Sends OTP to email.
-- `POST /api/verify-otp` — `{ email, otp }` in JSON body. Verifies OTP.
+- `POST /api/register` — multipart/form-data with `email`, `username`, `password`, optional `icon` and `publicKey`. Creates a new account (password is required).
+- `POST /api/login` — `{ email, password }` in JSON body. Returns the user on success.
 
 ## Notes
-- Uses MongoDB for OTP storage (expires in 5 minutes).
-- Uses Gmail SMTP (enable "App Passwords" for Gmail accounts with 2FA).
+- Authentication is password-based. OTP/email verification has been removed.

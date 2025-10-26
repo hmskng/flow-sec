@@ -73,9 +73,7 @@ class AuthUI {
             this.switchToLogin();
         });
 
-        // OTP sending
-        document.getElementById('send-otp')?.addEventListener('click', () => this.sendLoginOTP());
-        document.getElementById('signup-send-otp')?.addEventListener('click', () => this.sendSignupOTP());
+    // No OTP flow: authentication is password-based
 
         // Form submissions
         document.getElementById('login-form')?.addEventListener('submit', (e) => this.handleLogin(e));
@@ -135,142 +133,47 @@ class AuthUI {
         }
     }
 
-    async sendLoginOTP() {
-        const email = document.getElementById('email').value;
-        const button = document.getElementById('send-otp');
-        
-        if (!email) {
-            this.showNotification('Please enter your email address.', 'error');
-            return;
-        }
-
-        if (!this.validateEmail(email)) {
-            this.showNotification('Please enter a valid email address.', 'error');
-            return;
-        }
-
-        this.showLoading(button);
-
-        try {
-            const res = await this.postData(`${this.API_BASE}/send-otp`, { email });
-            if (res.message === 'OTP sent') {
-                document.getElementById('otp-group').style.display = 'flex';
-                document.getElementById('login-btn').style.display = 'flex';
-                this.showNotification('OTP sent to your email successfully!', 'success');
-            } else {
-                this.showNotification(res.message || 'Failed to send OTP.', 'error');
-            }
-        } catch (error) {
-            this.showNotification('Network error. Please try again.', 'error');
-        } finally {
-            this.hideLoading(button);
-        }
-    }
-
-    async sendSignupOTP() {
-        const email = document.getElementById('signup-email').value;
-        const username = document.getElementById('signup-username').value;
-        const button = document.getElementById('signup-send-otp');
-        
-        if (!email || !username) {
-            this.showNotification('Please fill in all required fields.', 'error');
-            return;
-        }
-
-        if (!this.validateEmail(email)) {
-            this.showNotification('Please enter a valid email address.', 'error');
-            return;
-        }
-
-        if (!this.validateUsername(username)) {
-            this.showNotification('Username must be 3-20 characters, letters, numbers and underscores only.', 'error');
-            return;
-        }
-
-        this.showLoading(button);
-
-        try {
-            const res = await this.postData(`${this.API_BASE}/send-otp`, { email });
-            if (res.message === 'OTP sent') {
-                document.getElementById('signup-otp-group').style.display = 'flex';
-                document.getElementById('signup-btn').style.display = 'flex';
-                this.showNotification('OTP sent to your email successfully!', 'success');
-            } else {
-                this.showNotification(res.message || 'Failed to send OTP.', 'error');
-            }
-        } catch (error) {
-            this.showNotification('Network error. Please try again.', 'error');
-        } finally {
-            this.hideLoading(button);
-        }
-    }
+    // OTP functions removed - password-based authentication only
 
     async handleLogin(e) {
         e.preventDefault();
         const email = document.getElementById('email').value;
-        const otp = document.getElementById('otp').value;
         const password = document.getElementById('password').value;
         const button = document.getElementById('login-btn');
-
-        // Prefer password-based login when a password is provided
-        if (password) {
-            this.showLoading(button);
-            try {
-                const res = await this.postData(`${this.API_BASE}/login`, { email, password });
-                if (res.user) {
-                    this.showNotification('Login successful! Redirecting...', 'success');
-                    localStorage.setItem('userEmail', email);
-                    localStorage.setItem('user', JSON.stringify(res.user));
-                    setTimeout(() => { window.location.href = 'dashboard.html'; }, 1500);
-                } else if (res.message) {
-                    this.showNotification(res.message, 'error');
-                }
-            } catch (error) {
-                this.showNotification('Network error. Please try again.', 'error');
-            } finally {
-                this.hideLoading(button);
-            }
-            return;
-        }
-
-        if (!email || !otp) {
-            this.showNotification('Please enter both email and OTP.', 'error');
+        // Password-based login
+        if (!password) {
+            this.showNotification('Please enter your password.', 'error');
             return;
         }
 
         this.showLoading(button);
-
         try {
-            const res = await this.postData(`${this.API_BASE}/verify-otp`, { email, otp });
+            const res = await this.postData(`${this.API_BASE}/login`, { email, password });
             if (res.user) {
                 this.showNotification('Login successful! Redirecting...', 'success');
                 localStorage.setItem('userEmail', email);
                 localStorage.setItem('user', JSON.stringify(res.user));
-                setTimeout(() => {
-                    window.location.href = 'dashboard.html';
-                }, 1500);
-            } else if (res.message === 'OTP verified') {
-                this.showNotification('User not found. Please sign up first.', 'error');
-            } else {
-                this.showNotification(res.message || 'Invalid OTP. Please try again.', 'error');
+                setTimeout(() => { window.location.href = 'dashboard.html'; }, 1500);
+            } else if (res.message) {
+                this.showNotification(res.message, 'error');
             }
         } catch (error) {
             this.showNotification('Network error. Please try again.', 'error');
         } finally {
             this.hideLoading(button);
         }
+        return;
     }
 
     async handleSignup(e) {
         e.preventDefault();
         const email = document.getElementById('signup-email').value;
         const username = document.getElementById('signup-username').value;
-        const otp = document.getElementById('signup-otp').value;
         const password = document.getElementById('signup-password')?.value;
         const iconFile = document.getElementById('signup-icon').files[0];
         const button = document.getElementById('signup-btn');
 
-        if (!email || !username || !otp) {
+        if (!email || !username || !password) {
             this.showNotification('Please fill in all required fields.', 'error');
             return;
         }
@@ -281,8 +184,7 @@ class AuthUI {
             const formData = new FormData();
             formData.append('email', email);
             formData.append('username', username);
-            if (password) formData.append('password', password);
-            formData.append('otp', otp);
+            formData.append('password', password);
             if (iconFile) {
                 formData.append('icon', iconFile);
             }

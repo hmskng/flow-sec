@@ -82,26 +82,12 @@
                             <div class="form-group">
                                 <label for="password">Password</label>
                                 <div class="input-wrapper">
-                                    <input type="password" id="password" name="password" placeholder="Enter your password (or leave blank to use OTP)">
+                                    <input type="password" id="password" name="password" placeholder="Enter your password">
                                     <span class="input-icon">🔒</span>
                                 </div>
                             </div>
-                            
-                            <button type="button" id="send-otp" class="btn btn-primary">
-                                <span>Send OTP</span>
-                                <div class="btn-loader" style="display: none;"></div>
-                            </button>
-                            
-                            <div class="form-group" id="otp-group" style="display:none;">
-                                <label for="otp">Enter OTP</label>
-                                <div class="input-wrapper">
-                                    <input type="text" id="otp" name="otp" maxlength="6" required placeholder="6-digit code">
-                                    <span class="input-icon">🔑</span>
-                                </div>
-                                <small class="form-text">Check your email for the verification code</small>
-                            </div>
-                            
-                            <button type="submit" id="login-btn" class="btn btn-primary" style="display:none;">
+
+                            <button type="submit" id="login-btn" class="btn btn-primary">
                                 <span>Sign In</span>
                                 <div class="btn-loader" style="display: none;"></div>
                             </button>
@@ -155,21 +141,7 @@
                                 </div>
                             </div>
                             
-                            <button type="button" id="signup-send-otp" class="btn btn-primary">
-                                <span>Send OTP</span>
-                                <div class="btn-loader" style="display: none;"></div>
-                            </button>
-                            
-                            <div class="form-group" id="signup-otp-group" style="display:none;">
-                                <label for="signup-otp">Enter OTP</label>
-                                <div class="input-wrapper">
-                                    <input type="text" id="signup-otp" name="signup-otp" maxlength="6" required placeholder="6-digit code">
-                                    <span class="input-icon">🔑</span>
-                                </div>
-                                <small class="form-text">Check your email for the verification code</small>
-                            </div>
-                            
-                            <button type="submit" id="signup-btn" class="btn btn-primary" style="display:none;">
+                            <button type="submit" id="signup-btn" class="btn btn-primary">
                                 <span>Create Account</span>
                                 <div class="btn-loader" style="display: none;"></div>
                             </button>
