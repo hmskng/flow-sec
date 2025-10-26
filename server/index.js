@@ -108,7 +108,15 @@ app.post('/api/login', async (req, res) => {
         if (!user || !user.passwordHash) return res.status(400).json({ message: 'Invalid credentials' });
         const match = await bcrypt.compare(password, user.passwordHash);
         if (!match) return res.status(400).json({ message: 'Invalid credentials' });
-        res.json({ message: 'Login successful', user });
+        // Sanitize user before returning to client
+        const safeUser = {
+            _id: user._id,
+            email: user.email,
+            username: user.username,
+            profileIcon: user.profileIcon,
+            publicKey: user.publicKey
+        };
+        res.json({ message: 'Login successful', user: safeUser });
     } catch (error) {
         console.error('Login error:', error);
         res.status(500).json({ message: 'Login failed' });
@@ -147,7 +155,14 @@ app.post('/api/register', upload.single('icon'), async (req, res) => {
 
         user = await User.create(userData);
 
-        res.json({ user, message: 'Account created successfully' });
+        const safeUser = {
+            _id: user._id,
+            email: user.email,
+            username: user.username,
+            profileIcon: user.profileIcon,
+            publicKey: user.publicKey
+        };
+        res.json({ user: safeUser, message: 'Account created successfully' });
     } catch (error) {
         console.error('Registration error:', error);
 
