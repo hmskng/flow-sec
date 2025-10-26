@@ -624,13 +624,16 @@ class FlowSecDashboard {
 
     async decryptMessage(chatId, encrypted) {
         try {
-            // If it's already plain text (for backward compatibility), return as is
-            if (encrypted.length < 20 || !encrypted.includes('=')) {
+            // Try to decode base64; if invalid, treat as plaintext and return it
+            let data;
+            try {
+                data = atob(encrypted);
+            } catch (e) {
+                // Not base64 / not our encrypted format — return as-is
                 return encrypted;
             }
-            
+
             const key = await getChatKey(chatId);
-            const data = atob(encrypted);
             const iv = Uint8Array.from(data.slice(0, 12), c => c.charCodeAt(0));
             const ct = Uint8Array.from(data.slice(12), c => c.charCodeAt(0));
             const dec = await window.crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct);
