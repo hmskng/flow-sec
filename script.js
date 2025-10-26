@@ -360,7 +360,3 @@ class AuthUI {
 document.addEventListener('DOMContentLoaded', () => {
     new AuthUI();
 });
-// Initialize the authentication UI when the page loads
-document.addEventListener('DOMContentLoaded', () => {
-    new AuthUI();
-});
