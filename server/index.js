@@ -8,6 +8,7 @@ import fs from 'fs';
 import User from './models/User.js';
 import bcrypt from 'bcryptjs';
 import Chat from './models/Chat.js';
+import nodeCrypto from 'crypto';
 import Message from './models/Message.js';
 import VaultFile from './models/VaultFile.js';
 import VaultLink from './models/VaultLink.js';
@@ -724,16 +725,42 @@ app.get('/api/user-by-messageid', async (req, res) => {
 app.get('/api/chats', async (req, res) => {
     const { email } = req.query;
     if (!email) return res.status(400).json({ message: 'Email required' });
-    const chats = await Chat.find({ users: email });
-    res.json({ chats });
+    try {
+        const chats = await Chat.find({ users: email });
+        res.json({ chats });
+    } catch (err) {
+        console.error('Error listing chats:', err);
+        res.status(500).json({ message: 'Failed to list chats' });
+    }
+});
+
+// Return chat salt for key derivation
+app.get('/api/chat-salt', async (req, res) => {
+    try {
+        const { chatId } = req.query;
+        if (!chatId) return res.status(400).json({ message: 'chatId required' });
+        const chat = await Chat.findById(chatId);
+        if (!chat) return res.status(404).json({ message: 'Chat not found' });
+        res.json({ salt: chat.chatSalt });
+    } catch (err) {
+        console.error('Error fetching chat salt:', err);
+        res.status(500).json({ message: 'Failed to fetch chat salt' });
+    }
 });
 
 // Create new chat
 app.post('/api/chats', async (req, res) => {
     const { users } = req.body; // array of emails
     if (!users || users.length < 2) return res.status(400).json({ message: 'At least 2 users required' });
-    const chat = await Chat.create({ users });
-    res.json({ chat });
+    try {
+        // generate a per-chat random salt (16 bytes, base64)
+        const salt = nodeCrypto.randomBytes(16).toString('base64');
+        const chat = await Chat.create({ users, chatSalt: salt });
+        res.json({ chat });
+    } catch (err) {
+        console.error('Error creating chat:', err);
+        res.status(500).json({ message: 'Failed to create chat' });
+    }
 });
 
 // Start chat with username (search user and create chat)

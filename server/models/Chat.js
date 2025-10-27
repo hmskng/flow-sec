@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 
 const chatSchema = new mongoose.Schema({
     users: [{ type: String, required: true }], // array of user emails
+    chatSalt: { type: String, required: false }, // base64 salt used for deterministic chat key derivation
     createdAt: { type: Date, default: Date.now }
 });
 

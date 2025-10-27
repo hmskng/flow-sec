@@ -38,28 +38,46 @@ async function getChatKey(chatId) {
     }
 
     // Legacy deterministic derivation (fallback)
-    const keyMaterial = new TextEncoder().encode(chatId + 'FlowSecChatEncryption2025');
-    const importedKey = await window.crypto.subtle.importKey(
-        'raw',
-        keyMaterial,
-        { name: 'PBKDF2' },
-        false,
-        ['deriveKey']
-    );
-    const derivedKey = await window.crypto.subtle.deriveKey(
-        {
-            name: 'PBKDF2',
-            salt: new TextEncoder().encode('FlowSecSalt' + chatId),
-            iterations: 100000,
-            hash: 'SHA-256'
-        },
-        importedKey,
-        { name: 'AES-GCM', length: 256 },
-        false,
-        ['encrypt', 'decrypt']
-    );
-    console.log('🔑 Generated legacy encryption key for chat:', chatId);
-    return derivedKey;
+        // Use server-provided per-chat salt so all clients derive the same key deterministically.
+        const API_BASE = 'https://flowsec-kp3q.onrender.com/api';
+        try {
+            const res = await fetch(`${API_BASE}/chat-salt?chatId=${encodeURIComponent(chatId)}`);
+            if (!res.ok) {
+                throw new Error('Failed to fetch chat salt');
+            }
+            const data = await res.json();
+            const saltB64 = data.salt;
+            if (!saltB64) throw new Error('Missing chat salt');
+
+            const salt = Uint8Array.from(atob(saltB64), c => c.charCodeAt(0));
+
+            // Use chatId as the password/input material for PBKDF2 so the derived key depends on both chatId and server salt
+            const keyMaterial = new TextEncoder().encode(chatId);
+            const imported = await window.crypto.subtle.importKey('raw', keyMaterial, { name: 'PBKDF2' }, false, ['deriveKey']);
+
+            const derivedKey = await window.crypto.subtle.deriveKey(
+                {
+                    name: 'PBKDF2',
+                    salt,
+                    iterations: 150000,
+                    hash: 'SHA-256'
+                },
+                imported,
+                { name: 'AES-GCM', length: 256 },
+                false,
+                ['encrypt', 'decrypt']
+            );
+
+            console.log('🔑 Derived chat key using server salt for chat:', chatId);
+            return derivedKey;
+        } catch (err) {
+            console.error('Failed to derive chat key:', err);
+            // Fallback: derive from chatId and a stable client-side salt (legacy)
+            const keyMaterial = new TextEncoder().encode(chatId + 'FlowSecChatEncryption2025');
+            const importedKey = await window.crypto.subtle.importKey('raw', keyMaterial, { name: 'PBKDF2' }, false, ['deriveKey']);
+            const derivedKey = await window.crypto.subtle.deriveKey({ name: 'PBKDF2', salt: new TextEncoder().encode('FlowSecSalt' + chatId), iterations: 100000, hash: 'SHA-256' }, importedKey, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+            return derivedKey;
+        }
 }
 
 console.log('🚀 ENCRYPTION FIXED VERSION LOADED - getChatKey function available');
